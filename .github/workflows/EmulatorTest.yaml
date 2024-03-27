@@ -1,0 +1,67 @@
+name: Build and Test Android App
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v2
+        with:
+          distribution: "adopt"
+          java-version: "11"
+
+      - name: Build with Gradle
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v2
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+  test:
+    name: Test on Emulator
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Download APK
+        uses: actions/download-artifact@v2
+        with:
+          name: app-debug
+          path: app-debug
+
+      - name: Set up Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          package: "system-images;android-29;google_apis;x86"
+          script: |
+            emulator --version
+            echo no | avdmanager create avd --force --name test --abi google_apis/x86 --package "system-images;android-29;google_apis;x86"
+            emulator -avd test -no-audio -no-window -accel auto -gpu swiftshader
+
+      - name: Wait for emulator to finish booting
+        run: adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
+
+      - name: Install APK
+        run: adb install -r app-debug/app-debug.apk
+
+      - name: Run tests
+        run: ./gradlew connectedAndroidTest
